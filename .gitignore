@@ -1,0 +1,6 @@
+data_files
+.ipynb_checkpoints
+.~lock.*
+__pycache__
+*.pyc
+*.o
