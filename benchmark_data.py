@@ -290,7 +290,8 @@ non_libors = {
     },
 }
 
-bm_names = {' '.join((bm['currency'], 'LIBOR')) for bm in libors if bm['currency'] is not None} | non_libors.keys()
+benchmark_names = [' '.join((bm['currency'], 'LIBOR')) for bm in libors if bm['currency'] is not None] \
+                    + sorted(non_libors.keys())
 
 replacements = {
     'GBP LIBOR': 'SONIA',

@@ -9,6 +9,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from typing import Tuple, Union, Optional, Iterable
+from copy import deepcopy
 
 from dateutil import parser as dateparser
 from dateutil.tz import tzutc
@@ -89,7 +90,7 @@ def get_maturity_date(elem:etree._Element) -> datetime:
     return datetime.strptime(elem[3][1].text, '%Y-%m-%d')
     
 def get_maturity(elem: etree._Element, from_date: datetime = TODAY) -> float:
-    maturity = ((get_maturity_date(s) - from_date) / day) / 354.25
+    maturity = ((get_maturity_date(elem) - from_date) / day) / 354.25
     return maturity
 
 def get_tv_dates(elem: etree._Element) -> Tuple[datetime, datetime]:
@@ -215,7 +216,6 @@ def get_benchmark(ir_data: dict, currency: str, libors: Tuple[dict] = benchmark_
         return benchmark, match_type
     else:
         return None, None
-    
 
 TRACKER_PROTOTYPE = {
     'last_isin': None,
@@ -228,9 +228,10 @@ TRACKER_PROTOTYPE = {
     },
     'benchmark_data': {bm: {
             'count': 0,
-            'agg_maturity': timedelta(),
-            'agg_nominal': 0  
-        } for bm in benchmark_data.bm_names},
+            'agg_maturity': 0,
+            'agg_nominal': 0,
+            'agg_mxn': 0
+        } for bm in benchmark_data.benchmark_names},
     'duplicates': 0,
     'matured': 0,
     'delisted': 0,
@@ -238,7 +239,7 @@ TRACKER_PROTOTYPE = {
 }
 
 def init_tracker() -> dict:
-    return TRACKER_PROTOTYPE.copy()
+    return deepcopy(TRACKER_PROTOTYPE)
 
 def aggregate_trackers(trackers: Iterable) -> dict:
     agg = init_tracker()
@@ -247,15 +248,15 @@ def aggregate_trackers(trackers: Iterable) -> dict:
     for bm in agg['benchmark_data']:
         agg['benchmark_data'][bm]['count'] = sum(t['benchmark_data'][bm]['count'] for t in trackers)
         agg['benchmark_data'][bm]['agg_nominal'] = sum(t['benchmark_data'][bm]['agg_nominal'] for t in trackers)
-        agg['benchmark_data'][bm]['agg_maturity'] = sum((t['benchmark_data'][bm]['agg_maturity'] for t in trackers),
-                                                        start=ZERO_TIME)
+        agg['benchmark_data'][bm]['agg_maturity'] = sum(t['benchmark_data'][bm]['agg_maturity'] for t in trackers)
     for t in trackers:
         for k in t['floating_uncat']:
             agg['floating_uncat'][k].update(t['floating_uncat'][k])
     return agg
 
-def parse_security(s, tracker: dict, assess_date: datetime = TODAY_UTC, libors: Tuple[dict] = benchmark_data.libors,
-                    non_libors: dict = benchmark_data.non_libors) -> None:
+def parse_security(s, tracker: dict, libors: Tuple[dict] = benchmark_data.libors,
+                    non_libors: dict = benchmark_data.non_libors,
+                    assess_date: datetime = TODAY) -> None:
     _, term_date = get_tv_dates(s)
     if (term_date is not None) and (term_date < assess_date):
         tracker['delisted'] += 1
@@ -266,7 +267,7 @@ def parse_security(s, tracker: dict, assess_date: datetime = TODAY_UTC, libors: 
         return
     tracker['last_isin'] = isin
     maturity = get_maturity(s, from_date=assess_date)
-    if maturity < ZERO_TIME:
+    if maturity < 0:
         tracker['matured'] += 1
         return
     nominal_amount = get_nominal_amount(s)
@@ -279,9 +280,10 @@ def parse_security(s, tracker: dict, assess_date: datetime = TODAY_UTC, libors: 
         tracker['floating'] += 1
         bm, match_type = get_benchmark(ir_data, currency, libors, non_libors)
         if bm:
-            tracker['benchmark_data'][bm] += 1
+            tracker['benchmark_data'][bm]['count'] += 1
             tracker['benchmark_data'][bm]['agg_maturity'] += maturity
             tracker['benchmark_data'][bm]['agg_nominal'] += nominal_amount
+            tracker['benchmark_data'][bm]['agg_mxn'] += maturity * nominal_amount
         else:
             for identifier in ('index_isin', 'index_name', 'index_code'):
                 if identifier in ir_data:

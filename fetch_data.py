@@ -9,7 +9,7 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from os import mkdir, listdir, remove
 from os.path import join, exists, dirname, realpath
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Sequence, Tuple
 
 import requests
 from lxml import etree
@@ -92,17 +92,18 @@ def download_zipped_file(url: str, to_dir: str = None) -> str:
     zipfile.extractall(path=to_dir)
     return join(to_dir, name)
     
-def download_xml_files(from_date: datetime = None, to_date: datetime = None, to_dir: str = None, ftype: str = '') -> List[str]:
+def download_xml_files(from_date: datetime = None, to_date: datetime = None,
+                       to_dir: str = None, ftype: str = '') -> Tuple[List[str], Optional[Sequence[datetime]]]:
     fpaths = []
     urls = get_file_urls(from_date, to_date, ftype=ftype)
     for date in urls:
         for fpath in urls[date]:
             fpaths.append(download_zipped_file(fpath, to_dir))
-    return fpaths
+    return fpaths, sorted(urls)
     
 def get_xml_files(ftype: str = '', data_dir: Optional[str] = None,
                     from_date: Optional[datetime] = None, 
-                    to_date: Optional[datetime] = None) -> List[str]:
+                    to_date: Optional[datetime] = None) -> Tuple[List[str], Optional[Sequence[datetime]]]:
     logging.info('Getting FIRDS XML files.')
     if data_dir is None:
         data_dir = DATA_DIR
@@ -113,7 +114,7 @@ def get_xml_files(ftype: str = '', data_dir: Optional[str] = None,
         return download_xml_files(to_dir=data_dir, ftype=ftype,
                                     from_date=from_date, to_date=to_date)
     else:
-        return xml_files
+        return xml_files, None
 
 def get_debt_files() -> List[str]:
     
