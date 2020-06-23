@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 """The main script for scraping the FIRDS XML data.  Contains functions
@@ -15,8 +15,8 @@ from multiprocessing.managers import ListProxy
 from copy import deepcopy
 from typing import Optional, Tuple, Iterator
 from datetime import datetime, timedelta
-from os import makedirs
-from os.path import join, expanduser, exists
+from os import makedirs, remove
+from os.path import join, expanduser, exists, dirname
 
 import fetch_data
 import analyse_data
@@ -51,11 +51,10 @@ for name in benchmark_names:
 
 def iter_dates(from_date: datetime,
                to_date: datetime,
-               step: timedelta = timedelta(days=7)) -> Iterator[Tuple[datetime]]:
-    one_day = timedelta(days=1)
+               step: timedelta) -> Iterator[Tuple[datetime]]:
     date = from_date
     while date < to_date:
-        yield date, date + step - one_day
+        yield date, date + step
         date += step
 
 def parse_debt_files_non_mp():
@@ -167,49 +166,45 @@ def build_csv(new_file: bool = True, report: bool = True):
             logging.info('Wrote header row to blank CSV file {}.'.format(CSV_FILE))
         else:
             logging.info('Continuing with existing CSV file {}.'.format(CSV_FILE))
-        for from_date, to_date in iter_dates(START_DATE, END_DATE):
+        for from_date, to_date in iter_dates(START_DATE, END_DATE, timedelta(days=7)):
+            to_date -= timedelta(days=1)
             from_date_hr = from_date.strftime('%d-%m-%Y')
             to_date_hr = to_date.strftime('%d-%m-%Y')
             logging.info('Searching for XML files in date range {} to {}.'.format(from_date_hr, to_date_hr))
-            files, dates = fetch_data.get_xml_files(ftype='D', from_date=from_date, to_date=to_date)
-            # Get actual date files were published
-            if len(set(dates)) > 1:
-                err_msg = 'XML files for date range {}-{} are from {} different dates: {}.'.format(
-                    from_date_hr,
-                    to_date_hr,
-                    len(dates),
-                    dates)
-                logging.critical(err_msg)
-                raise ValueError(err_msg)
-            date = dates[0]
-            logging.info('Found {} files from date {}'.format(len(files), date.strftime('%d-%m-%Y')))
-            tracker, libors, non_libors = parse_multi_files(files)
-            if report:
-                report_path = save_report(date, tracker, libors, non_libors)
-                logging.info('Report saved to {}.'.format(report_path))
-            bm_data = tracker['benchmark_data']
-            values = [date.strftime('%Y-%m-%d')]
-            # NB:  Values must be appended in same order as LABELS.  
-            for name in benchmark_names:
-                count = bm_data[name]['count']
-                agg_maturity = bm_data[name]['agg_maturity']
-                agg_nominal = bm_data[name]['agg_nominal']
-                agg_mxn = bm_data[name]['agg_mxn']
-                values.append(count)
-                try:
-                    values.append(agg_maturity / count)
-                except ZeroDivisionError:
-                    values.append(0)
-                try:
-                    values.append(agg_mxn / agg_nominal)
-                except ZeroDivisionError:
-                    values.append(0)
-                try:
-                    values.append(agg_nominal / count)
-                except ZeroDivisionError:
-                    values.append(0)
-            writer.writerow(values)
-            logging.info('Wrote data to CSV file.')
+            files = fetch_data.get_xml_files(ftype='D', from_date=from_date, to_date=to_date, force_dl=True)
+            for date in files:
+                logging.info('Found {} files from date {}'.format(len(files[date]), date.strftime('%d-%m-%Y')))
+                tracker, libors, non_libors = parse_multi_files(files[date])
+                if report:
+                    report_path = save_report(date, tracker, libors, non_libors)
+                    logging.info('Report saved to {}.'.format(report_path))
+                bm_data = tracker['benchmark_data']
+                values = [date.strftime('%Y-%m-%d')]
+                # NB:  Values must be appended in same order as LABELS.  
+                for name in benchmark_names:
+                    count = bm_data[name]['count']
+                    agg_maturity = bm_data[name]['agg_maturity']
+                    agg_nominal = bm_data[name]['agg_nominal']
+                    agg_mxn = bm_data[name]['agg_mxn']
+                    values.append(count)
+                    try:
+                        values.append(agg_maturity / count)
+                    except ZeroDivisionError:
+                        values.append(0)
+                    try:
+                        values.append(agg_mxn / agg_nominal)
+                    except ZeroDivisionError:
+                        values.append(0)
+                    try:
+                        values.append(agg_nominal / count)
+                    except ZeroDivisionError:
+                        values.append(0)
+                writer.writerow(values)
+                logging.info('Wrote data to CSV file.')
+                dirpath = dirname(files[date]) 
+                remove(dirpath)
+                logging.info('Removed directory {}.'.format(dirpath))
+
 
 def main(args):
     logging.getLogger().setLevel(20)

@@ -249,6 +249,7 @@ def aggregate_trackers(trackers: Iterable) -> dict:
         agg['benchmark_data'][bm]['count'] = sum(t['benchmark_data'][bm]['count'] for t in trackers)
         agg['benchmark_data'][bm]['agg_nominal'] = sum(t['benchmark_data'][bm]['agg_nominal'] for t in trackers)
         agg['benchmark_data'][bm]['agg_maturity'] = sum(t['benchmark_data'][bm]['agg_maturity'] for t in trackers)
+        agg['benchmark_data'][bm]['agg_mxn'] = sum(t['benchmark_data'][bm]['agg_mxn'] for t in trackers)
     for t in trackers:
         for k in t['floating_uncat']:
             agg['floating_uncat'][k].update(t['floating_uncat'][k])

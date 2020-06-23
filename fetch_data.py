@@ -92,30 +92,33 @@ def download_zipped_file(url: str, to_dir: str = None) -> str:
     zipfile.extractall(path=to_dir)
     return join(to_dir, name)
     
-def download_xml_files(from_date: datetime = None, to_date: datetime = None,
-                       to_dir: str = None, ftype: str = '') -> Tuple[List[str], Optional[Sequence[datetime]]]:
-    fpaths = []
-    urls = get_file_urls(from_date, to_date, ftype=ftype)
-    for date in urls:
-        for fpath in urls[date]:
-            fpaths.append(download_zipped_file(fpath, to_dir))
-    return fpaths, sorted(urls)
-    
 def get_xml_files(ftype: str = '', data_dir: Optional[str] = None,
                     from_date: Optional[datetime] = None, 
-                    to_date: Optional[datetime] = None) -> Tuple[List[str], Optional[Sequence[datetime]]]:
+                    to_date: Optional[datetime] = None,
+                    force_dl: bool = False) -> Dict[datetime, List[str]]:
     logging.info('Getting FIRDS XML files.')
+    urls = get_file_urls(from_date, to_date, ftype=ftype)
     if data_dir is None:
         data_dir = DATA_DIR
-    xml_files = [join(data_dir, f) for f in listdir(data_dir) if (f.startswith(FNAME_START.format(ftype)) and f.endswith('.xml'))]
-    if (not xml_files) or (from_date is not None):
-        for f in xml_files:
-            remove(f)
-        return download_xml_files(to_dir=data_dir, ftype=ftype,
-                                    from_date=from_date, to_date=to_date)
-    else:
-        return xml_files, None
+    fpaths = {}
+    for date in urls:
+        date_dir = join(data_dir, date.strftime('%Y%m%d'))
+        if exists(date_dir):
+            date_files = [join(date_dir, f) for f in listdir(date_dir)]
+            if force_dl:
+                for f in date_files:
+                    remove(f)
+                    fpaths[date] = [download_zipped_file(url, date_dir) for url in urls[date]]
+            else:
+                fpaths[date] = list(filter(
+                    lambda f: f.startswith(FNAME_START.format(ftype)) and f.endswith('.xml'),
+                    date_files
+                ))
+        else:
+            mkdir(date_dir)
+            fpaths[date] = [download_zipped_file(url, date_dir) for url in urls[date]]
+    return fpaths
 
-def get_debt_files() -> List[str]:
+def get_debt_files() -> Dict[datetime, List[str]]:
     
     return get_xml_files(ftype='D')
