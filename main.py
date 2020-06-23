@@ -15,8 +15,9 @@ from multiprocessing.managers import ListProxy
 from copy import deepcopy
 from typing import Optional, Tuple, Iterator
 from datetime import datetime, timedelta
-from os import makedirs, remove
+from os import makedirs
 from os.path import join, expanduser, exists, dirname
+from shutil import rmtree
 
 import fetch_data
 import analyse_data
@@ -201,8 +202,8 @@ def build_csv(new_file: bool = True, report: bool = True):
                         values.append(0)
                 writer.writerow(values)
                 logging.info('Wrote data to CSV file.')
-                dirpath = dirname(files[date]) 
-                remove(dirpath)
+                dirpath = dirname(files[date][0]) 
+                rmtree(dirpath, ignore_errors=True)
                 logging.info('Removed directory {}.'.format(dirpath))
 
 
