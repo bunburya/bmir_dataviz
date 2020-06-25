@@ -9,6 +9,8 @@ to check what benchmark rate (if any) is used by a given security.
 from typing import Tuple
 from copy import deepcopy
 
+libor_currencies = {'GBP', 'EUR', 'USD', 'CHF', 'JPY'}
+
 libors = (
     
     {

@@ -18,7 +18,8 @@ from lxml import etree
 
 import benchmark_data
 
-TODAY_UTC = datetime.utcnow().replace(tzinfo=tzutc())
+TZUTC = tzutc()
+TODAY_UTC = datetime.utcnow().replace(tzinfo=TZUTC)
 TODAY = datetime.today()
 ZERO_TIME = timedelta()
 
@@ -87,21 +88,36 @@ def get_isin(elem: etree._Element) -> str:
     return elem[0][0].text
       
 def get_maturity_date(elem:etree._Element) -> datetime:
-    return datetime.strptime(elem[3][1].text, '%Y-%m-%d')
+    mat_date = datetime.strptime(elem[3][1].text, '%Y-%m-%d')
+    if mat_date.tzinfo is None:
+        mat_date = mat_date.replace(tzinfo=TZUTC)
+    return mat_date
     
-def get_maturity(elem: etree._Element, from_date: datetime = TODAY) -> float:
+def get_maturity(elem: etree._Element, from_date: datetime = TODAY_UTC) -> float:
     maturity = ((get_maturity_date(elem) - from_date) / day) / 354.25
     return maturity
 
 def get_tv_dates(elem: etree._Element) -> Tuple[datetime, datetime]:
+    """Get the date the security was first admitted to the relevant
+    trading value and, if available, the date the security was removed
+    from the relevant trading venue.
+
+    Time should be reported in UTC, so where a date does not specify a
+    timezone, we specify UTC.
+    """
     tv_data = elem[2]
     first_trade = None
     termination = None
     for datum in tv_data:
+        # TODO:  Using xpath would probably be quicker for this
         if datum.tag.endswith('}FrstTradDt'):
             first_trade = dateparser.isoparse(datum.text)
+            if first_trade.tzinfo is None:
+                first_trade = first_trade.replace(tzinfo=TZUTC)
         elif datum.tag.endswith('}TermntnDt'):
             termination = dateparser.isoparse(datum.text)
+            if termination.tzinfo is None:
+                termination = termination.replace(tzinfo=TZUTC)
     return first_trade, termination
 
 def get_nominal_amount(elem: etree._Element) -> float:
@@ -171,8 +187,6 @@ def is_benchmark(bm_data: dict, ir_data: dict, check_code: bool = True) -> Tuple
     return False, None
 
 def is_libor(ir_data: dict, currency: str, libors: Tuple[dict] = benchmark_data.libors) -> Tuple[Union[str, bool], Optional[str]]:
-    if 'EURIBOR' in libors:
-        print('is_libor', ir_data)
     for bm_data in libors:
         if bm_data['currency'] is None:
             check_code = True
@@ -184,7 +198,14 @@ def is_libor(ir_data: dict, currency: str, libors: Tuple[dict] = benchmark_data.
             if bm_currency is None:
                 # Security has matched generic_libor, so we just guess LIBOR currency
                 # from currency of security.
-                return currency, match_type
+                if currency in benchmark_data.libor_currencies:
+                    return currency, match_type
+                else:
+                    # Security simply refers to LIBOR (generically) as the interest rate
+                    # but the currency of the security does not match any of the LIBOR
+                    # currencies.  In at least one situation, this means that the reference
+                    # to LIBOR is an error.  Therefore, we do not return any LIBOR here.
+                    return False, None
             else:
                 return bm_currency, match_type
     return False, None
@@ -194,8 +215,6 @@ def get_benchmark(ir_data: dict, currency: str, libors: Tuple[dict] = benchmark_
                     isin: str = None) -> Tuple[Optional[str], Optional[str]]:
     
     benchmark = None
-    if 'EURIBOR' in libors:
-        print('get_benchmark', libors == non_libors, benchmark_data.libors == benchmark_data.non_libors)
     libor_currency, match_type = is_libor(ir_data, currency, libors)
     if libor_currency:
         benchmark = ' '.join((libor_currency, 'LIBOR'))
@@ -257,7 +276,7 @@ def aggregate_trackers(trackers: Iterable) -> dict:
 
 def parse_security(s, tracker: dict, libors: Tuple[dict] = benchmark_data.libors,
                     non_libors: dict = benchmark_data.non_libors,
-                    assess_date: datetime = TODAY) -> None:
+                    assess_date: datetime = TODAY_UTC) -> None:
     _, term_date = get_tv_dates(s)
     if (term_date is not None) and (term_date < assess_date):
         tracker['delisted'] += 1
@@ -280,6 +299,9 @@ def parse_security(s, tracker: dict, libors: Tuple[dict] = benchmark_data.libors
     if ir_data['fixed_floating'] == 'floating':
         tracker['floating'] += 1
         bm, match_type = get_benchmark(ir_data, currency, libors, non_libors)
+        if bm == 'HKD LIBOR':
+            print(isin)
+            print(ir_data)
         if bm:
             tracker['benchmark_data'][bm]['count'] += 1
             tracker['benchmark_data'][bm]['agg_maturity'] += maturity
@@ -294,8 +316,6 @@ def parse_security(s, tracker: dict, libors: Tuple[dict] = benchmark_data.libors
 
 def parse_file(fpath, tracker: dict, libors: Tuple[dict] = benchmark_data.libors,
                 non_libors: dict = benchmark_data.non_libors) -> None:
-    if 'EURIBOR' in libors:
-        print('parse_file', fpath, libors == non_libors)
     for event, elem in etree.iterparse(fpath):
         if elem.tag.endswith('}RefData'):
             parse_security(elem, tracker, libors, non_libors)
